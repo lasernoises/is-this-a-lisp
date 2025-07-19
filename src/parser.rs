@@ -234,8 +234,6 @@ fn parse_list(parser: &mut Parser) -> Value {
 pub fn parse(buf: &str) -> Value {
     let tokens = tokenize(buf);
 
-    dbg!(&tokens);
-
     let mut parser = Parser::new(&tokens);
     let node = parse_node(&mut parser);
 

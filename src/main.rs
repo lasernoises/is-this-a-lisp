@@ -14,12 +14,6 @@ pub enum Value {
 }
 
 fn main() {
-    dbg!(parser::parse("[]"));
-    dbg!(parser::parse("[1 \"abc\"]"));
-    dbg!(parser::parse("[1 [\"abc\"]]"));
-    dbg!(parser::parse("[the [\"abc\"]]"));
-    dbg!(parser::parse("[- 5 8]"));
-
     let code = include_str!("./code.lisp?");
     let ast = parse(code);
 

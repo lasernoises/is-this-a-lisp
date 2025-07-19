@@ -1,5 +1,7 @@
 ### Is this a LISP?
 
+I wanted to make a LISP. But I don't know what a LISP is. I heard it has something to do with lists.
+
 #### File Extension
 
 Since we're not sure whether this is a LISP you should use `.lisp?` as a file extension. That way if

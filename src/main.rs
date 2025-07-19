@@ -20,42 +20,70 @@ fn main() {
     dbg!(eval_program(&ast));
 }
 
-// struct Scope {
-//     variables: HashMap<>
-// }
+#[derive(Clone)]
+struct Scope {
+    parent: Option<Rc<Scope>>,
+    variables: HashMap<&'static str, Value>,
+}
+
+impl Scope {
+    fn resolve(&self, name: &str) -> &Value {
+        if let Some(value) = self.variables.get(name) {
+            value
+        } else if let Some(ref parent) = self.parent {
+            parent.resolve(name)
+        } else {
+            &Value::Error
+        }
+    }
+}
 
 fn eval_program(content: &Value) -> Value {
+    let root_scope = Rc::new(Scope {
+        parent: None,
+        variables: HashMap::new(),
+    });
+
     if let Value::List(block_content) = content {
-        eval_block(block_content)
+        eval_block(root_scope, block_content)
     } else {
         Value::Error
     }
 }
 
-fn eval(input: &Value) -> Value {
+fn eval(scope: &Rc<Scope>, input: &Value) -> Value {
     match input {
         v @ (Value::Number(_) | Value::String(_)) => v.clone(),
         Value::List(values) if values.len() >= 1 => todo!(),
+        Value::Symbol(name) => scope.resolve(name).clone(),
         _ => Value::Error,
     }
 }
 
-fn eval_block(content: &[Value]) -> Value {
+fn eval_block(scope: Rc<Scope>, content: &[Value]) -> Value {
     let Some((last, statements)) = content.split_last() else {
         return Value::Error;
     };
 
-    let mut scope: HashMap<&'static str, Value> = HashMap::with_capacity(statements.len());
+    let mut scope = Rc::new(Scope {
+        parent: Some(scope),
+        variables: HashMap::with_capacity(statements.len()),
+    });
 
     for statement in statements {
         if let &Value::List(ref list) = statement
             && let [Value::Symbol("let"), Value::Symbol(name), expr] = list.as_slice()
         {
-            scope.insert(name, eval(expr));
+            let value = eval(&scope, expr);
+
+            // This clones the scope if it was captured by the expression. Maybe it would would be
+            // better to start a new scope that just has the other one as its parent in that case.
+            // Or each scope could just be a pair.
+            Rc::make_mut(&mut scope).variables.insert(name, value);
         } else {
             return Value::Error;
         }
     }
 
-    eval(last)
+    eval(&scope, last)
 }

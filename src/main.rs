@@ -54,7 +54,13 @@ fn eval_program(content: &Value) -> Value {
 fn eval(scope: &Rc<Scope>, input: &Value) -> Value {
     match input {
         v @ (Value::Number(_) | Value::String(_)) => v.clone(),
-        Value::List(values) if values.len() >= 1 => todo!(),
+        Value::List(values) => {
+            if let [Value::Symbol(name), ..] = values.as_slice() {
+                call(scope, name, &values[1..])
+            } else {
+                Value::Error
+            }
+        }
         Value::Symbol(name) => scope.resolve(name).clone(),
         _ => Value::Error,
     }
@@ -86,4 +92,26 @@ fn eval_block(scope: Rc<Scope>, content: &[Value]) -> Value {
     }
 
     eval(&scope, last)
+}
+
+fn call(scope: &Rc<Scope>, name: &'static str, params: &[Value]) -> Value {
+    match (name, params) {
+        ("+" | "-" | "*" | "/", [a, b]) => {
+            let a = eval(scope, a);
+            let b = eval(scope, b);
+
+            if let (Value::Number(a), Value::Number(b)) = (a, b) {
+                Value::Number(match name {
+                    "+" => a + b,
+                    "-" => a - b,
+                    "*" => a * b,
+                    "/" => a / b,
+                    _ => unreachable!(),
+                })
+            } else {
+                Value::Error
+            }
+        }
+        _ => Value::Error,
+    }
 }

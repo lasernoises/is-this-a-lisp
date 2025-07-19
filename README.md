@@ -1,5 +1,16 @@
 ### Is this a LISP?
 
+```
+[
+  [let a 12]
+  [let b [+ a 18]]
+  [let c [* a b]]
+  [let d [- c a]]
+
+  d
+]
+```
+
 I wanted to make a LISP. But I don't know what a LISP is. I heard it has something to do with lists.
 
 #### File Extension

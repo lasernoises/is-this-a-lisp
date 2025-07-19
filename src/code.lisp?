@@ -2,6 +2,7 @@
   [let a 12]
   [let b [+ a 18]]
   [let c [* a b]]
+  [let - +]
   [let d [- c a]]
 
   d

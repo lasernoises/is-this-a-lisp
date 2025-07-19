@@ -11,6 +11,10 @@ pub enum Value {
     Symbol(&'static str), // TODO: interning
     List(Rc<Vec<Value>>),
     Error,
+    BuiltinAdd,
+    BuiltinSub,
+    BuiltinMul,
+    BuiltinDiv,
 }
 
 fn main() {
@@ -33,7 +37,13 @@ impl Scope {
         } else if let Some(ref parent) = self.parent {
             parent.resolve(name)
         } else {
-            &Value::Error
+            match name {
+                "+" => &Value::BuiltinAdd,
+                "-" => &Value::BuiltinSub,
+                "*" => &Value::BuiltinMul,
+                "/" => &Value::BuiltinDiv,
+                _ => &Value::Error,
+            }
         }
     }
 }
@@ -55,8 +65,9 @@ fn eval(scope: &Rc<Scope>, input: &Value) -> Value {
     match input {
         v @ (Value::Number(_) | Value::String(_)) => v.clone(),
         Value::List(values) => {
-            if let [Value::Symbol(name), ..] = values.as_slice() {
-                call(scope, name, &values[1..])
+            if let [callable, ..] = values.as_slice() {
+                let callable = eval(scope, callable);
+                call(scope, &callable, &values[1..])
             } else {
                 Value::Error
             }
@@ -94,18 +105,18 @@ fn eval_block(scope: Rc<Scope>, content: &[Value]) -> Value {
     eval(&scope, last)
 }
 
-fn call(scope: &Rc<Scope>, name: &'static str, params: &[Value]) -> Value {
-    match (name, params) {
-        ("+" | "-" | "*" | "/", [a, b]) => {
+fn call(scope: &Rc<Scope>, callable: &Value, params: &[Value]) -> Value {
+    match (callable, params) {
+        (Value::BuiltinAdd | Value::BuiltinSub | Value::BuiltinMul | Value::BuiltinDiv, [a, b]) => {
             let a = eval(scope, a);
             let b = eval(scope, b);
 
             if let (Value::Number(a), Value::Number(b)) = (a, b) {
-                Value::Number(match name {
-                    "+" => a + b,
-                    "-" => a - b,
-                    "*" => a * b,
-                    "/" => a / b,
+                Value::Number(match callable {
+                    Value::BuiltinAdd => a + b,
+                    Value::BuiltinSub => a - b,
+                    Value::BuiltinMul => a * b,
+                    Value::BuiltinDiv => a / b,
                     _ => unreachable!(),
                 })
             } else {

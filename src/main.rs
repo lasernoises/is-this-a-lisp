@@ -4,18 +4,24 @@ use parser::parse;
 
 mod parser;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub enum Value {
     Number(f64),
     String(Rc<String>),
     Symbol(&'static str), // TODO: interning
     List(Rc<Vec<Value>>),
-    Error,
+    Fn {
+        scope: Rc<Scope>,
+        params: Rc<Vec<Value>>,
+        content: Rc<Vec<Value>>,
+    },
     BuiltinAdd,
     BuiltinSub,
     BuiltinMul,
     BuiltinDiv,
     BuiltinBlock,
+    BuiltinFn,
+    Error,
 }
 
 fn main() {
@@ -25,8 +31,8 @@ fn main() {
     dbg!(eval_program(&ast));
 }
 
-#[derive(Clone)]
-struct Scope {
+#[derive(Clone, Debug)]
+pub struct Scope {
     parent: Option<Rc<Scope>>,
     variables: HashMap<&'static str, Value>,
 }
@@ -44,6 +50,7 @@ impl Scope {
                 "*" => &Value::BuiltinMul,
                 "/" => &Value::BuiltinDiv,
                 "block" => &Value::BuiltinBlock,
+                "fn" => &Value::BuiltinFn,
                 _ => &Value::Error,
             }
         }
@@ -126,6 +133,82 @@ fn call(scope: &Rc<Scope>, callable: &Value, params: &[Value]) -> Value {
             }
         }
         (Value::BuiltinBlock, content) => eval_block(scope.clone(), content),
+        (Value::BuiltinFn, content) => {
+            if content.len() < 2 {
+                return Value::Error;
+            }
+
+            let Value::List(ref params) = content[0] else {
+                return Value::Error;
+            };
+
+            // We just put errors in here for now. The point is to not need to allocate a new
+            // hashmap every time we call the function. That only happens if the function gets
+            // called in a reentrant way because of Rc::make_mut.
+            let mut params_map = HashMap::with_capacity(params.len());
+
+            for param in params.iter() {
+                if let &Value::Symbol(name) = param {
+                    if params_map.insert(name, Value::Error).is_some() {
+                        // No duplicate paramter names.
+                        return Value::Error;
+                    }
+                } else {
+                    return Value::Error;
+                }
+            }
+
+            Value::Fn {
+                scope: Rc::new(Scope {
+                    parent: Some(scope.clone()),
+                    variables: params_map,
+                }),
+                params: params.clone(),
+                content: Rc::new(content[1..].to_vec()),
+            }
+        }
+        (
+            Value::Fn {
+                scope: fn_scope,
+                params: params_def,
+                content,
+            },
+            params,
+        ) => {
+            if params_def.len() != params.len() {
+                return Value::Error;
+            }
+
+            let mut fn_scope = fn_scope.clone();
+            let fn_scope_params = &mut Rc::make_mut(&mut fn_scope).variables;
+
+            let mut params_def = params_def.iter();
+
+            for param in params {
+                fn_scope_params
+                    .insert(
+                        match params_def.next() {
+                            Some(Value::Symbol(name)) => name,
+                            // The lenth of params_def gets checked above and at function definition
+                            // only symbols are allowed.
+                            _ => unreachable!(),
+                        },
+                        eval(scope, param),
+                    )
+                    // There needs to be a previous value in here from when we define the scope.
+                    .unwrap();
+            }
+
+            let ret = eval_block(fn_scope.clone(), &content);
+
+            for param in Rc::make_mut(&mut fn_scope).variables.values_mut() {
+                // We don't want to hang on to those values for too long. For all we know they could
+                // be huge.
+                *param = Value::Error;
+            }
+
+            ret
+        }
         _ => Value::Error,
     }
 }

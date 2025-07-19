@@ -3,6 +3,12 @@
   [let b [+ a 18]]
   [let c [* a b]]
 
+  [let f [fn [a b]
+    [let c [+ a b]]
+    [let mega 1000000]
+    [+ c mega]
+  ]]
+
   [let c [block
     [let a 1000]
 
@@ -12,5 +18,5 @@
   [let - +]
   [let d [- c a]]
 
-  d
+  [f 12 12]
 ]

@@ -15,6 +15,7 @@ pub enum Value {
     BuiltinSub,
     BuiltinMul,
     BuiltinDiv,
+    BuiltinBlock,
 }
 
 fn main() {
@@ -42,6 +43,7 @@ impl Scope {
                 "-" => &Value::BuiltinSub,
                 "*" => &Value::BuiltinMul,
                 "/" => &Value::BuiltinDiv,
+                "block" => &Value::BuiltinBlock,
                 _ => &Value::Error,
             }
         }
@@ -123,6 +125,7 @@ fn call(scope: &Rc<Scope>, callable: &Value, params: &[Value]) -> Value {
                 Value::Error
             }
         }
+        (Value::BuiltinBlock, content) => eval_block(scope.clone(), content),
         _ => Value::Error,
     }
 }

@@ -4,17 +4,20 @@ use parser::parse;
 
 mod parser;
 
+#[derive(Debug)]
+pub struct Fn {
+    scope: Rc<Scope>,
+    params: Rc<Vec<Value>>,
+    content: Vec<Value>,
+}
+
 #[derive(Clone, Debug)]
 pub enum Value {
     Number(f64),
     String(Rc<String>),
     Symbol(&'static str), // TODO: interning
     List(Rc<Vec<Value>>),
-    Fn {
-        scope: Rc<Scope>,
-        params: Rc<Vec<Value>>,
-        content: Rc<Vec<Value>>,
-    },
+    Fn(Rc<Fn>),
     BuiltinAdd,
     BuiltinSub,
     BuiltinMul,
@@ -158,31 +161,24 @@ fn call(scope: &Rc<Scope>, callable: &Value, params: &[Value]) -> Value {
                 }
             }
 
-            Value::Fn {
+            Value::Fn(Rc::new(Fn {
                 scope: Rc::new(Scope {
                     parent: Some(scope.clone()),
                     variables: params_map,
                 }),
                 params: params.clone(),
-                content: Rc::new(content[1..].to_vec()),
-            }
+                content: content[1..].to_vec(),
+            }))
         }
-        (
-            Value::Fn {
-                scope: fn_scope,
-                params: params_def,
-                content,
-            },
-            params,
-        ) => {
-            if params_def.len() != params.len() {
+        (Value::Fn(function), params) => {
+            if function.params.len() != params.len() {
                 return Value::Error;
             }
 
-            let mut fn_scope = fn_scope.clone();
+            let mut fn_scope = function.scope.clone();
             let fn_scope_params = &mut Rc::make_mut(&mut fn_scope).variables;
 
-            let mut params_def = params_def.iter();
+            let mut params_def = function.params.iter();
 
             for param in params {
                 fn_scope_params
@@ -199,7 +195,7 @@ fn call(scope: &Rc<Scope>, callable: &Value, params: &[Value]) -> Value {
                     .unwrap();
             }
 
-            let ret = eval_block(fn_scope.clone(), &content);
+            let ret = eval_block(fn_scope.clone(), &function.content);
 
             for param in Rc::make_mut(&mut fn_scope).variables.values_mut() {
                 // We don't want to hang on to those values for too long. For all we know they could

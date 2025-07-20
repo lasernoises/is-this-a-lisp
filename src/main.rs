@@ -1,9 +1,11 @@
 use std::{collections::HashMap, rc::Rc};
 
 use builtins::{BuiltinFn, BuiltinMacro};
+use io::Io;
 use parser::parse;
 
 mod builtins;
+mod io;
 mod parser;
 
 #[derive(Debug)]
@@ -55,13 +57,37 @@ impl UserFn {
 pub enum Fn {
     Builtin(BuiltinFn),
     User(Rc<UserFn>),
+    Bind(Rc<(Fn, Fn)>),
+    Then(Rc<(Fn, Rc<Io>)>),
 }
 
 impl Fn {
-    pub fn call(&self, params: impl ExactSizeIterator<Item = Value>) -> Value {
+    pub fn call(&self, mut params: impl ExactSizeIterator<Item = Value>) -> Value {
         match self {
             Fn::Builtin(builtin_fn) => builtin_fn.call(params),
             Fn::User(user_fn) => user_fn.call(params),
+            Fn::Bind(content) => {
+                let (Some(val), None) = (params.next(), params.next()) else {
+                    return Value::Error;
+                };
+
+                let Value::Io(io) = content.0.call([val].into_iter()) else {
+                    return Value::Error;
+                };
+
+                io.bind(&content.1).map(Value::Io).unwrap_or(Value::Error)
+            }
+            Fn::Then(content) => {
+                let (Some(val), None) = (params.next(), params.next()) else {
+                    return Value::Error;
+                };
+
+                let Value::Io(io) = content.0.call([val].into_iter()) else {
+                    return Value::Error;
+                };
+
+                Value::Io(io.then(content.1.clone()))
+            }
         }
     }
 }
@@ -74,14 +100,20 @@ pub enum Value {
     List(Rc<Vec<Value>>),
     Fn(Fn),
     Macro(BuiltinMacro),
+    Io(Rc<Io>),
     Error,
+    Nil,
 }
 
 fn main() {
     let code = include_str!("./code.lisp?");
     let ast = parse(code);
 
-    dbg!(eval_program(&ast));
+    let result = dbg!(eval_program(&ast));
+
+    if let Value::Io(io) = result {
+        dbg!(io.execute());
+    }
 }
 
 #[derive(Clone, Debug)]

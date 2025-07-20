@@ -18,5 +18,14 @@
   [let - +]
   [let d [- c a]]
 
-  [f 12 12]
+  [then
+    [read_line]
+    [then
+      [print_line "abc"]
+      [bind
+        [read_line]
+        print_line
+      ]
+    ]
+  ]
 ]

@@ -1,6 +1,6 @@
 use std::{collections::HashMap, rc::Rc};
 
-use crate::{Fn, Scope, UserFn, Value, eval_block};
+use crate::{Fn, Scope, UserFn, Value, eval_block, io::Io};
 
 pub fn resolve(name: &str) -> &'static Value {
     match name {
@@ -8,6 +8,13 @@ pub fn resolve(name: &str) -> &'static Value {
         "-" => &Value::Fn(Fn::Builtin(BuiltinFn::Sub)),
         "*" => &Value::Fn(Fn::Builtin(BuiltinFn::Mul)),
         "/" => &Value::Fn(Fn::Builtin(BuiltinFn::Div)),
+
+        "then" => &Value::Fn(Fn::Builtin(BuiltinFn::Then)),
+        "bind" => &Value::Fn(Fn::Builtin(BuiltinFn::Bind)),
+        "return" => &Value::Fn(Fn::Builtin(BuiltinFn::Return)),
+
+        "read_line" => &Value::Fn(Fn::Builtin(BuiltinFn::ReadLine)),
+        "print_line" => &Value::Fn(Fn::Builtin(BuiltinFn::PrintLine)),
 
         "block" => &Value::Macro(BuiltinMacro::Block),
         "fn" => &Value::Macro(BuiltinMacro::Fn),
@@ -21,6 +28,13 @@ pub enum BuiltinFn {
     Sub,
     Mul,
     Div,
+
+    Then,
+    Bind,
+    Return,
+
+    ReadLine,
+    PrintLine,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -31,22 +45,66 @@ pub enum BuiltinMacro {
 
 impl BuiltinFn {
     pub fn call(self, mut params: impl ExactSizeIterator<Item = Value>) -> Value {
-        if params.len() != 2 {
-            return Value::Error;
-        }
+        match self {
+            BuiltinFn::Add | BuiltinFn::Sub | BuiltinFn::Mul | BuiltinFn::Div => {
+                if params.len() != 2 {
+                    return Value::Error;
+                }
 
-        let a = params.next().unwrap();
-        let b = params.next().unwrap();
+                let a = params.next().unwrap();
+                let b = params.next().unwrap();
 
-        if let (Value::Number(a), Value::Number(b)) = (a, b) {
-            Value::Number(match self {
-                BuiltinFn::Add => a + b,
-                BuiltinFn::Sub => a - b,
-                BuiltinFn::Mul => a * b,
-                BuiltinFn::Div => a / b,
-            })
-        } else {
-            Value::Error
+                if let (Value::Number(a), Value::Number(b)) = (a, b) {
+                    Value::Number(match self {
+                        BuiltinFn::Add => a + b,
+                        BuiltinFn::Sub => a - b,
+                        BuiltinFn::Mul => a * b,
+                        BuiltinFn::Div => a / b,
+                        _ => unreachable!(),
+                    })
+                } else {
+                    Value::Error
+                }
+            }
+            BuiltinFn::Then => {
+                let (Some(Value::Io(a)), Some(Value::Io(b)), None) =
+                    (params.next(), params.next(), params.next())
+                else {
+                    return Value::Error;
+                };
+
+                Value::Io(a.then(b))
+            }
+            BuiltinFn::Bind => {
+                let (Some(Value::Io(a)), Some(Value::Fn(b)), None) =
+                    (params.next(), params.next(), params.next())
+                else {
+                    return Value::Error;
+                };
+
+                a.bind(&b).map(Value::Io).unwrap_or(Value::Error)
+            }
+            BuiltinFn::Return => {
+                if params.len() != 1 {
+                    return Value::Error;
+                }
+
+                Value::Io(Rc::new(Io::Done(params.next().unwrap())))
+            }
+            BuiltinFn::ReadLine => {
+                if params.len() != 0 {
+                    return Value::Error;
+                }
+
+                Value::Io(Rc::new(Io::ReadLine(Fn::Builtin(BuiltinFn::Return))))
+            }
+            BuiltinFn::PrintLine => {
+                let Some(Value::String(line)) = params.next() else {
+                    return Value::Error;
+                };
+
+                Value::Io(Rc::new(Io::PrintLine(line, Rc::new(Io::Done(Value::Nil)))))
+            }
         }
     }
 }

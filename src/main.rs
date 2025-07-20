@@ -1,7 +1,9 @@
 use std::{collections::HashMap, rc::Rc};
 
+use builtins::Builtin;
 use parser::parse;
 
+mod builtins;
 mod parser;
 
 #[derive(Debug)]
@@ -18,12 +20,7 @@ pub enum Value {
     Symbol(&'static str), // TODO: interning
     List(Rc<Vec<Value>>),
     Fn(Rc<Fn>),
-    BuiltinAdd,
-    BuiltinSub,
-    BuiltinMul,
-    BuiltinDiv,
-    BuiltinBlock,
-    BuiltinFn,
+    Builtin(Builtin),
     Error,
 }
 
@@ -47,15 +44,7 @@ impl Scope {
         } else if let Some(ref parent) = self.parent {
             parent.resolve(name)
         } else {
-            match name {
-                "+" => &Value::BuiltinAdd,
-                "-" => &Value::BuiltinSub,
-                "*" => &Value::BuiltinMul,
-                "/" => &Value::BuiltinDiv,
-                "block" => &Value::BuiltinBlock,
-                "fn" => &Value::BuiltinFn,
-                _ => &Value::Error,
-            }
+            Builtin::resolve(name)
         }
     }
 }
@@ -118,59 +107,9 @@ fn eval_block(scope: Rc<Scope>, content: &[Value]) -> Value {
 }
 
 fn call(scope: &Rc<Scope>, callable: &Value, params: &[Value]) -> Value {
-    match (callable, params) {
-        (Value::BuiltinAdd | Value::BuiltinSub | Value::BuiltinMul | Value::BuiltinDiv, [a, b]) => {
-            let a = eval(scope, a);
-            let b = eval(scope, b);
-
-            if let (Value::Number(a), Value::Number(b)) = (a, b) {
-                Value::Number(match callable {
-                    Value::BuiltinAdd => a + b,
-                    Value::BuiltinSub => a - b,
-                    Value::BuiltinMul => a * b,
-                    Value::BuiltinDiv => a / b,
-                    _ => unreachable!(),
-                })
-            } else {
-                Value::Error
-            }
-        }
-        (Value::BuiltinBlock, content) => eval_block(scope.clone(), content),
-        (Value::BuiltinFn, content) => {
-            if content.len() < 2 {
-                return Value::Error;
-            }
-
-            let Value::List(ref params) = content[0] else {
-                return Value::Error;
-            };
-
-            // We just put errors in here for now. The point is to not need to allocate a new
-            // hashmap every time we call the function. That only happens if the function gets
-            // called in a reentrant way because of Rc::make_mut.
-            let mut params_map = HashMap::with_capacity(params.len());
-
-            for param in params.iter() {
-                if let &Value::Symbol(name) = param {
-                    if params_map.insert(name, Value::Error).is_some() {
-                        // No duplicate paramter names.
-                        return Value::Error;
-                    }
-                } else {
-                    return Value::Error;
-                }
-            }
-
-            Value::Fn(Rc::new(Fn {
-                scope: Rc::new(Scope {
-                    parent: Some(scope.clone()),
-                    variables: params_map,
-                }),
-                params: params.clone(),
-                content: content[1..].to_vec(),
-            }))
-        }
-        (Value::Fn(function), params) => {
+    match callable {
+        Value::Builtin(builtin) => builtin.call(scope, params),
+        Value::Fn(function) => {
             if function.params.len() != params.len() {
                 return Value::Error;
             }

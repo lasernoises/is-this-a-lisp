@@ -1,16 +1,69 @@
 use std::{collections::HashMap, rc::Rc};
 
-use builtins::Builtin;
+use builtins::{BuiltinFn, BuiltinMacro};
 use parser::parse;
 
 mod builtins;
 mod parser;
 
 #[derive(Debug)]
-pub struct Fn {
+pub struct UserFn {
     scope: Rc<Scope>,
     params: Rc<Vec<Value>>,
     content: Vec<Value>,
+}
+
+impl UserFn {
+    pub fn call(&self, params: impl ExactSizeIterator<Item = Value>) -> Value {
+        if self.params.len() != params.len() {
+            return Value::Error;
+        }
+
+        let mut fn_scope = self.scope.clone();
+        let fn_scope_params = &mut Rc::make_mut(&mut fn_scope).variables;
+
+        let mut params_def = self.params.iter();
+
+        for param in params {
+            fn_scope_params
+                .insert(
+                    match params_def.next() {
+                        Some(Value::Symbol(name)) => name,
+                        // The lenth of params_def gets checked above and at function definition
+                        // only symbols are allowed.
+                        _ => unreachable!(),
+                    },
+                    param,
+                )
+                // There needs to be a previous value in here from when we define the scope.
+                .unwrap();
+        }
+
+        let ret = eval_block(fn_scope.clone(), &self.content);
+
+        for param in Rc::make_mut(&mut fn_scope).variables.values_mut() {
+            // We don't want to hang on to those values for too long. For all we know they could
+            // be huge.
+            *param = Value::Error;
+        }
+
+        ret
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum Fn {
+    Builtin(BuiltinFn),
+    User(Rc<UserFn>),
+}
+
+impl Fn {
+    pub fn call(&self, params: impl ExactSizeIterator<Item = Value>) -> Value {
+        match self {
+            Fn::Builtin(builtin_fn) => builtin_fn.call(params),
+            Fn::User(user_fn) => user_fn.call(params),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -19,8 +72,8 @@ pub enum Value {
     String(Rc<String>),
     Symbol(&'static str), // TODO: interning
     List(Rc<Vec<Value>>),
-    Fn(Rc<Fn>),
-    Builtin(Builtin),
+    Fn(Fn),
+    Macro(BuiltinMacro),
     Error,
 }
 
@@ -44,7 +97,7 @@ impl Scope {
         } else if let Some(ref parent) = self.parent {
             parent.resolve(name)
         } else {
-            Builtin::resolve(name)
+            builtins::resolve(name)
         }
     }
 }
@@ -108,42 +161,8 @@ fn eval_block(scope: Rc<Scope>, content: &[Value]) -> Value {
 
 fn call(scope: &Rc<Scope>, callable: &Value, params: &[Value]) -> Value {
     match callable {
-        Value::Builtin(builtin) => builtin.call(scope, params),
-        Value::Fn(function) => {
-            if function.params.len() != params.len() {
-                return Value::Error;
-            }
-
-            let mut fn_scope = function.scope.clone();
-            let fn_scope_params = &mut Rc::make_mut(&mut fn_scope).variables;
-
-            let mut params_def = function.params.iter();
-
-            for param in params {
-                fn_scope_params
-                    .insert(
-                        match params_def.next() {
-                            Some(Value::Symbol(name)) => name,
-                            // The lenth of params_def gets checked above and at function definition
-                            // only symbols are allowed.
-                            _ => unreachable!(),
-                        },
-                        eval(scope, param),
-                    )
-                    // There needs to be a previous value in here from when we define the scope.
-                    .unwrap();
-            }
-
-            let ret = eval_block(fn_scope.clone(), &function.content);
-
-            for param in Rc::make_mut(&mut fn_scope).variables.values_mut() {
-                // We don't want to hang on to those values for too long. For all we know they could
-                // be huge.
-                *param = Value::Error;
-            }
-
-            ret
-        }
+        Value::Macro(builtin_macro) => builtin_macro.call(scope, params),
+        Value::Fn(function) => function.call(params.iter().map(|param| eval(scope, param))),
         _ => Value::Error,
     }
 }

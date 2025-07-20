@@ -1,52 +1,61 @@
 use std::{collections::HashMap, rc::Rc};
 
-use crate::{Fn, Scope, Value, eval, eval_block};
+use crate::{Fn, Scope, UserFn, Value, eval_block};
+
+pub fn resolve(name: &str) -> &'static Value {
+    match name {
+        "+" => &Value::Fn(Fn::Builtin(BuiltinFn::Add)),
+        "-" => &Value::Fn(Fn::Builtin(BuiltinFn::Sub)),
+        "*" => &Value::Fn(Fn::Builtin(BuiltinFn::Mul)),
+        "/" => &Value::Fn(Fn::Builtin(BuiltinFn::Div)),
+
+        "block" => &Value::Macro(BuiltinMacro::Block),
+        "fn" => &Value::Macro(BuiltinMacro::Fn),
+        _ => &Value::Error,
+    }
+}
 
 #[derive(Copy, Clone, Debug)]
-pub enum Builtin {
+pub enum BuiltinFn {
     Add,
     Sub,
     Mul,
     Div,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum BuiltinMacro {
     Block,
     Fn,
 }
 
-impl Builtin {
-    /// A bit hacky to return a Value here instead of an Option<Self>, but this way we can return a
-    /// reference from [Scope::resolve].
-    pub fn resolve(name: &str) -> &'static Value {
-        match name {
-            "+" => &Value::Builtin(Self::Add),
-            "-" => &Value::Builtin(Self::Sub),
-            "*" => &Value::Builtin(Self::Mul),
-            "/" => &Value::Builtin(Self::Div),
-            "block" => &Value::Builtin(Self::Block),
-            "fn" => &Value::Builtin(Self::Fn),
-            _ => &Value::Error,
+impl BuiltinFn {
+    pub fn call(self, mut params: impl ExactSizeIterator<Item = Value>) -> Value {
+        if params.len() != 2 {
+            return Value::Error;
+        }
+
+        let a = params.next().unwrap();
+        let b = params.next().unwrap();
+
+        if let (Value::Number(a), Value::Number(b)) = (a, b) {
+            Value::Number(match self {
+                BuiltinFn::Add => a + b,
+                BuiltinFn::Sub => a - b,
+                BuiltinFn::Mul => a * b,
+                BuiltinFn::Div => a / b,
+            })
+        } else {
+            Value::Error
         }
     }
+}
 
-    pub fn call(self, scope: &Rc<Scope>, params: &[Value]) -> Value {
-        match (self, params) {
-            (Builtin::Add | Builtin::Sub | Builtin::Mul | Builtin::Div, [a, b]) => {
-                let a = eval(scope, a);
-                let b = eval(scope, b);
-
-                if let (Value::Number(a), Value::Number(b)) = (a, b) {
-                    Value::Number(match self {
-                        Builtin::Add => a + b,
-                        Builtin::Sub => a - b,
-                        Builtin::Mul => a * b,
-                        Builtin::Div => a / b,
-                        _ => unreachable!(),
-                    })
-                } else {
-                    Value::Error
-                }
-            }
-            (Builtin::Block, content) => eval_block(scope.clone(), content),
-            (Builtin::Fn, content) => {
+impl BuiltinMacro {
+    pub fn call(self, scope: &Rc<Scope>, content: &[Value]) -> Value {
+        match self {
+            BuiltinMacro::Block => eval_block(scope.clone(), content),
+            BuiltinMacro::Fn => {
                 if content.len() < 2 {
                     return Value::Error;
                 }
@@ -71,16 +80,15 @@ impl Builtin {
                     }
                 }
 
-                Value::Fn(Rc::new(Fn {
+                Value::Fn(Fn::User(Rc::new(UserFn {
                     scope: Rc::new(Scope {
                         parent: Some(scope.clone()),
                         variables: params_map,
                     }),
                     params: params.clone(),
                     content: content[1..].to_vec(),
-                }))
+                })))
             }
-            _ => Value::Error,
         }
     }
 }

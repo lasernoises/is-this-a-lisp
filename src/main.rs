@@ -186,6 +186,82 @@ fn eval_block(mut scope: Rc<Scope>, content: &[Value]) -> Value {
     eval(&scope, last)
 }
 
+// A purely syntactic transformation would also work here. But what is this? LISP?
+fn eval_do_block(scope: &Rc<Scope>, content: &[Value]) -> Option<Rc<Io>> {
+    let (first, rest) = content.split_first()?;
+
+    match if let Value::List(list) = first {
+        Some(list.as_slice())
+    } else {
+        None
+    } {
+        Some([Value::Symbol("let"), Value::Symbol(name), expr]) => {
+            if rest.len() < 1 {
+                return None;
+            }
+
+            let value = eval(scope, expr);
+
+            if let Value::Error = value {
+                return None;
+            }
+
+            let scope = scope.clone().with(*name, value);
+
+            eval_do_block(&scope, rest)
+        }
+        Some([Value::Symbol("use"), Value::Symbol(name), expr]) => {
+            if rest.len() < 1 {
+                return None;
+            }
+
+            let value = eval(scope, expr);
+
+            let Value::Io(io) = value else {
+                return None;
+            };
+
+            io.bind(&Function::Fn(Rc::new({
+                let name = *name;
+                let scope = scope.clone();
+
+                // Rather unfortunate copying here. Having an abstraction for reference counted
+                // slices where different sub-slices share a reference count for an allocation would
+                // be helpful here.
+                //
+                // ...Or linked lists, I guess. But what is this? LISP?
+                let rest = rest.to_vec();
+                move |params| {
+                    let (Some(value), None) = (params.next(), params.next()) else {
+                        return Value::Error;
+                    };
+
+                    let scope = scope.clone().with(name, value);
+
+                    let Some(io) = eval_do_block(&scope, &rest) else {
+                        return Value::Error;
+                    };
+
+                    Value::Io(io)
+                }
+            })))
+        }
+        _ => {
+            let value = eval(scope, first);
+
+            let Value::Io(io) = value else {
+                return None;
+            };
+
+            if rest.len() >= 1 {
+                Some(io.then(eval_do_block(scope, rest)?))
+            } else {
+                Some(io)
+            }
+        }
+    }
+}
+
 fn call(scope: &Rc<Scope>, callable: &Value, params: &[Value]) -> Value {
     match callable {
         Value::Macro(builtin_macro) => builtin_macro.call(scope, params),

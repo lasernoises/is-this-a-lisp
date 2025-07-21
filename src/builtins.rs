@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::{Function, Scope, UserFn, Value, eval_block, io::Io};
+use crate::{Function, Scope, UserFn, Value, eval_block, eval_do_block, io::Io};
 
 pub fn resolve(name: &str) -> &'static Value {
     match name {
@@ -17,6 +17,7 @@ pub fn resolve(name: &str) -> &'static Value {
         "print_line" => &Value::Fn(Function::Builtin(BuiltinFn::PrintLine)),
 
         "block" => &Value::Macro(BuiltinMacro::Block),
+        "do" => &Value::Macro(BuiltinMacro::Do),
         "fn" => &Value::Macro(BuiltinMacro::Fn),
         _ => &Value::Error,
     }
@@ -41,6 +42,7 @@ pub enum BuiltinFn {
 pub enum BuiltinMacro {
     Block,
     Fn,
+    Do,
 }
 
 impl BuiltinFn {
@@ -113,6 +115,9 @@ impl BuiltinMacro {
     pub fn call(self, scope: &Rc<Scope>, content: &[Value]) -> Value {
         match self {
             BuiltinMacro::Block => eval_block(scope.clone(), content),
+            BuiltinMacro::Do => eval_do_block(scope, content)
+                .map(Value::Io)
+                .unwrap_or(Value::Error),
             BuiltinMacro::Fn => {
                 if content.len() < 2 {
                     return Value::Error;

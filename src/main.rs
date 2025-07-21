@@ -173,6 +173,10 @@ fn eval_block(mut scope: Rc<Scope>, content: &[Value]) -> Value {
         {
             let value = eval(&scope, expr);
 
+            if let Value::Error = value {
+                return Value::Error;
+            }
+
             scope = scope.with(name, value);
         } else {
             return Value::Error;

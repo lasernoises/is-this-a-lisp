@@ -53,41 +53,29 @@ impl UserFn {
     }
 }
 
-#[derive(Clone, Debug)]
-pub enum Fn {
+#[derive(Clone)]
+pub enum Function {
     Builtin(BuiltinFn),
     User(Rc<UserFn>),
-    Bind(Rc<(Fn, Fn)>),
-    Then(Rc<(Fn, Rc<Io>)>),
+    Fn(Rc<dyn Fn(&mut dyn ExactSizeIterator<Item = Value>) -> Value>),
 }
 
-impl Fn {
+impl std::fmt::Debug for Function {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Builtin(arg0) => f.debug_tuple("Builtin").field(arg0).finish(),
+            Self::User(arg0) => f.debug_tuple("User").field(arg0).finish(),
+            Self::Fn(_) => f.debug_tuple("Fn").finish(),
+        }
+    }
+}
+
+impl Function {
     pub fn call(&self, mut params: impl ExactSizeIterator<Item = Value>) -> Value {
         match self {
-            Fn::Builtin(builtin_fn) => builtin_fn.call(params),
-            Fn::User(user_fn) => user_fn.call(params),
-            Fn::Bind(content) => {
-                let (Some(val), None) = (params.next(), params.next()) else {
-                    return Value::Error;
-                };
-
-                let Value::Io(io) = content.0.call([val].into_iter()) else {
-                    return Value::Error;
-                };
-
-                io.bind(&content.1).map(Value::Io).unwrap_or(Value::Error)
-            }
-            Fn::Then(content) => {
-                let (Some(val), None) = (params.next(), params.next()) else {
-                    return Value::Error;
-                };
-
-                let Value::Io(io) = content.0.call([val].into_iter()) else {
-                    return Value::Error;
-                };
-
-                Value::Io(io.then(content.1.clone()))
-            }
+            Function::Builtin(builtin_fn) => builtin_fn.call(params),
+            Function::User(user_fn) => user_fn.call(params),
+            Function::Fn(f) => f(&mut params),
         }
     }
 }
@@ -98,7 +86,7 @@ pub enum Value {
     String(Rc<String>),
     Symbol(&'static str), // TODO: interning
     List(Rc<Vec<Value>>),
-    Fn(Fn),
+    Fn(Function),
     Macro(BuiltinMacro),
     Io(Rc<Io>),
     Error,

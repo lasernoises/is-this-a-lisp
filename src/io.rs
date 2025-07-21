@@ -1,10 +1,10 @@
 use std::rc::Rc;
 
-use crate::{Fn, Value};
+use crate::{Function, Value};
 
 #[derive(Debug)]
 pub enum Io {
-    ReadLine(Fn),
+    ReadLine(Function),
     PrintLine(Rc<String>, Rc<Io>),
     Done(Value),
 }
@@ -33,12 +33,23 @@ impl Io {
         }
     }
 
-    pub fn bind(&self, f: &Fn) -> Option<Rc<Io>> {
+    pub fn bind(&self, f: &Function) -> Option<Rc<Io>> {
         match self {
-            Io::ReadLine(function) => Some(Rc::new(Io::ReadLine(Fn::Bind(Rc::new((
-                f.clone(),
-                function.clone(),
-            )))))),
+            Io::ReadLine(function) => Some(Rc::new(Io::ReadLine(Function::Fn(Rc::new({
+                let f = f.clone();
+                let function = function.clone();
+                move |params| {
+                    let (Some(val), None) = (params.next(), params.next()) else {
+                        return Value::Error;
+                    };
+
+                    let Value::Io(io) = f.call([val].into_iter()) else {
+                        return Value::Error;
+                    };
+
+                    io.bind(&function).map(Value::Io).unwrap_or(Value::Error)
+                }
+            }))))),
             Io::PrintLine(line, io) => Some(Rc::new(Io::PrintLine(line.clone(), io.bind(f)?))),
             Io::Done(value) => {
                 let Value::Io(next) = f.call([value.clone()].into_iter()) else {
@@ -52,7 +63,21 @@ impl Io {
 
     pub fn then(&self, other: Rc<Io>) -> Rc<Io> {
         match self {
-            Io::ReadLine(f) => Rc::new(Io::ReadLine(Fn::Then(Rc::new((f.clone(), other))))),
+            Io::ReadLine(f) => Rc::new(Io::ReadLine(Function::Fn(Rc::new({
+                let f = f.clone();
+                let other = other.clone();
+                move |params| {
+                    let (Some(val), None) = (params.next(), params.next()) else {
+                        return Value::Error;
+                    };
+
+                    let Value::Io(io) = f.call([val].into_iter()) else {
+                        return Value::Error;
+                    };
+
+                    Value::Io(io.then(other.clone()))
+                }
+            })))),
             Io::PrintLine(line, io) => Rc::new(Io::PrintLine(line.clone(), io.then(other))),
             Io::Done(_) => other,
         }

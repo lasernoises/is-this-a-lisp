@@ -1,20 +1,20 @@
 use std::{collections::HashMap, rc::Rc};
 
-use crate::{Fn, Scope, UserFn, Value, eval_block, io::Io};
+use crate::{Function, Scope, UserFn, Value, eval_block, io::Io};
 
 pub fn resolve(name: &str) -> &'static Value {
     match name {
-        "+" => &Value::Fn(Fn::Builtin(BuiltinFn::Add)),
-        "-" => &Value::Fn(Fn::Builtin(BuiltinFn::Sub)),
-        "*" => &Value::Fn(Fn::Builtin(BuiltinFn::Mul)),
-        "/" => &Value::Fn(Fn::Builtin(BuiltinFn::Div)),
+        "+" => &Value::Fn(Function::Builtin(BuiltinFn::Add)),
+        "-" => &Value::Fn(Function::Builtin(BuiltinFn::Sub)),
+        "*" => &Value::Fn(Function::Builtin(BuiltinFn::Mul)),
+        "/" => &Value::Fn(Function::Builtin(BuiltinFn::Div)),
 
-        "then" => &Value::Fn(Fn::Builtin(BuiltinFn::Then)),
-        "bind" => &Value::Fn(Fn::Builtin(BuiltinFn::Bind)),
-        "return" => &Value::Fn(Fn::Builtin(BuiltinFn::Return)),
+        "then" => &Value::Fn(Function::Builtin(BuiltinFn::Then)),
+        "bind" => &Value::Fn(Function::Builtin(BuiltinFn::Bind)),
+        "return" => &Value::Fn(Function::Builtin(BuiltinFn::Return)),
 
-        "read_line" => &Value::Fn(Fn::Builtin(BuiltinFn::ReadLine)),
-        "print_line" => &Value::Fn(Fn::Builtin(BuiltinFn::PrintLine)),
+        "read_line" => &Value::Fn(Function::Builtin(BuiltinFn::ReadLine)),
+        "print_line" => &Value::Fn(Function::Builtin(BuiltinFn::PrintLine)),
 
         "block" => &Value::Macro(BuiltinMacro::Block),
         "fn" => &Value::Macro(BuiltinMacro::Fn),
@@ -96,7 +96,7 @@ impl BuiltinFn {
                     return Value::Error;
                 }
 
-                Value::Io(Rc::new(Io::ReadLine(Fn::Builtin(BuiltinFn::Return))))
+                Value::Io(Rc::new(Io::ReadLine(Function::Builtin(BuiltinFn::Return))))
             }
             BuiltinFn::PrintLine => {
                 let Some(Value::String(line)) = params.next() else {
@@ -138,7 +138,7 @@ impl BuiltinMacro {
                     }
                 }
 
-                Value::Fn(Fn::User(Rc::new(UserFn {
+                Value::Fn(Function::User(Rc::new(UserFn {
                     scope: Rc::new(Scope {
                         parent: Some(scope.clone()),
                         variables: params_map,

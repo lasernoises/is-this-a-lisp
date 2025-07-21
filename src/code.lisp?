@@ -1,4 +1,4 @@
-[[do
+[do
   [let a 12]
   [let b [+ a 18]]
   [let c [* a b]]
@@ -23,4 +23,4 @@
   [use b [read_line]]
   [print_line b]
   [return d]
-]]
+]

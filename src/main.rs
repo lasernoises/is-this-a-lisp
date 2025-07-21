@@ -139,11 +139,7 @@ impl Scope {
 fn eval_program(content: &Value) -> Value {
     let root_scope = Rc::new(Scope::Empty);
 
-    if let Value::List(block_content) = content {
-        eval_block(root_scope, block_content)
-    } else {
-        Value::Error
-    }
+    eval(&root_scope, content)
 }
 
 fn eval(scope: &Rc<Scope>, input: &Value) -> Value {

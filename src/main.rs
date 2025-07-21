@@ -1,4 +1,4 @@
-use std::{collections::HashMap, rc::Rc};
+use std::rc::Rc;
 
 use builtins::{BuiltinFn, BuiltinMacro};
 use io::Io;
@@ -21,33 +21,23 @@ impl UserFn {
             return Value::Error;
         }
 
-        let mut fn_scope = self.scope.clone();
-        let fn_scope_params = &mut Rc::make_mut(&mut fn_scope).variables;
+        let mut scope = self.scope.clone();
 
         let mut params_def = self.params.iter();
 
         for param in params {
-            fn_scope_params
-                .insert(
-                    match params_def.next() {
-                        Some(Value::Symbol(name)) => name,
-                        // The lenth of params_def gets checked above and at function definition
-                        // only symbols are allowed.
-                        _ => unreachable!(),
-                    },
-                    param,
-                )
-                // There needs to be a previous value in here from when we define the scope.
-                .unwrap();
+            scope = scope.with(
+                match params_def.next() {
+                    Some(Value::Symbol(name)) => name,
+                    // The lenth of params_def gets checked above and at function definition
+                    // only symbols are allowed.
+                    _ => unreachable!(),
+                },
+                param,
+            );
         }
 
-        let ret = eval_block(fn_scope.clone(), &self.content);
-
-        for param in Rc::make_mut(&mut fn_scope).variables.values_mut() {
-            // We don't want to hang on to those values for too long. For all we know they could
-            // be huge.
-            *param = Value::Error;
-        }
+        let ret = eval_block(scope.clone(), &self.content);
 
         ret
     }
@@ -104,29 +94,50 @@ fn main() {
     }
 }
 
+// This used contain a hash-map such that each level could have multiple keys. The advantage of that
+// would likely have been in large blocks with lots of ifs, but then the map would need to be cloned
+// when the scope gets captured by an if in the middle. I don't expect blocks to contain that many
+// values usually, so this might actually be better because we can avoid the overhead of a hash-map,
+// but that's pure speculation.
+//
+// And of course there is lots of potential for optimization. For example there could be a hash-map
+// that we keep extending (regardless of whether we're in the same block) until something captures
+// it (making the refcount more than 1), at which point we'd start a new level. Or I think Clojure
+// has an interesting data-structure for this.
 #[derive(Clone, Debug)]
-pub struct Scope {
-    parent: Option<Rc<Scope>>,
-    variables: HashMap<&'static str, Value>,
+pub enum Scope {
+    Empty,
+    Value {
+        parent: Rc<Scope>,
+        name: &'static str,
+        value: Value,
+    },
 }
 
 impl Scope {
     fn resolve(&self, name: &str) -> &Value {
-        if let Some(value) = self.variables.get(name) {
-            value
-        } else if let Some(ref parent) = self.parent {
-            parent.resolve(name)
-        } else {
-            builtins::resolve(name)
+        match self {
+            Scope::Empty => builtins::resolve(name),
+            Scope::Value {
+                name: this_name,
+                value,
+                ..
+            } if *this_name == name => value,
+            Scope::Value { parent, .. } => parent.resolve(name),
         }
+    }
+
+    fn with(self: Rc<Self>, name: &'static str, value: Value) -> Rc<Scope> {
+        Rc::new(Scope::Value {
+            parent: self,
+            name,
+            value,
+        })
     }
 }
 
 fn eval_program(content: &Value) -> Value {
-    let root_scope = Rc::new(Scope {
-        parent: None,
-        variables: HashMap::new(),
-    });
+    let root_scope = Rc::new(Scope::Empty);
 
     if let Value::List(block_content) = content {
         eval_block(root_scope, block_content)
@@ -151,15 +162,10 @@ fn eval(scope: &Rc<Scope>, input: &Value) -> Value {
     }
 }
 
-fn eval_block(scope: Rc<Scope>, content: &[Value]) -> Value {
+fn eval_block(mut scope: Rc<Scope>, content: &[Value]) -> Value {
     let Some((last, statements)) = content.split_last() else {
         return Value::Error;
     };
-
-    let mut scope = Rc::new(Scope {
-        parent: Some(scope),
-        variables: HashMap::with_capacity(statements.len()),
-    });
 
     for statement in statements {
         if let &Value::List(ref list) = statement
@@ -167,10 +173,7 @@ fn eval_block(scope: Rc<Scope>, content: &[Value]) -> Value {
         {
             let value = eval(&scope, expr);
 
-            // This clones the scope if it was captured by the expression. Maybe it would would be
-            // better to start a new scope that just has the other one as its parent in that case.
-            // Or each scope could just be a pair.
-            Rc::make_mut(&mut scope).variables.insert(name, value);
+            scope = scope.with(name, value);
         } else {
             return Value::Error;
         }

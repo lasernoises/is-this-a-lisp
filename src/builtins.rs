@@ -1,4 +1,4 @@
-use std::{collections::HashMap, rc::Rc};
+use std::rc::Rc;
 
 use crate::{Function, Scope, UserFn, Value, eval_block, io::Io};
 
@@ -122,15 +122,16 @@ impl BuiltinMacro {
                     return Value::Error;
                 };
 
-                // We just put errors in here for now. The point is to not need to allocate a new
-                // hashmap every time we call the function. That only happens if the function gets
-                // called in a reentrant way because of Rc::make_mut.
-                let mut params_map = HashMap::with_capacity(params.len());
-
-                for param in params.iter() {
+                for (i, param) in params.iter().enumerate() {
                     if let &Value::Symbol(name) = param {
-                        if params_map.insert(name, Value::Error).is_some() {
-                            // No duplicate paramter names.
+                        // Duplicate parameter names are not allowed.
+                        if params[..i].iter().any(|other| {
+                            if let &Value::Symbol(other) = other {
+                                other == name
+                            } else {
+                                unreachable!()
+                            }
+                        }) {
                             return Value::Error;
                         }
                     } else {
@@ -139,10 +140,7 @@ impl BuiltinMacro {
                 }
 
                 Value::Fn(Function::User(Rc::new(UserFn {
-                    scope: Rc::new(Scope {
-                        parent: Some(scope.clone()),
-                        variables: params_map,
-                    }),
+                    scope: scope.clone(),
                     params: params.clone(),
                     content: content[1..].to_vec(),
                 })))

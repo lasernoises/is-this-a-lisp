@@ -9,6 +9,11 @@ mod io;
 mod parser;
 
 #[derive(Debug)]
+pub struct BadProgram;
+
+pub type Result<T> = std::result::Result<T, BadProgram>;
+
+#[derive(Debug)]
 pub struct UserFn {
     scope: Rc<Scope>,
     params: Rc<Vec<Value>>,
@@ -16,9 +21,9 @@ pub struct UserFn {
 }
 
 impl UserFn {
-    pub fn call(&self, params: impl ExactSizeIterator<Item = Value>) -> Value {
+    pub fn call(&self, params: impl ExactSizeIterator<Item = Result<Value>>) -> Result<Value> {
         if self.params.len() != params.len() {
-            return Value::Error;
+            return Err(BadProgram);
         }
 
         let mut scope = self.scope.clone();
@@ -33,13 +38,11 @@ impl UserFn {
                     // only symbols are allowed.
                     _ => unreachable!(),
                 },
-                param,
+                param?,
             );
         }
 
-        let ret = eval_block(scope.clone(), &self.content);
-
-        ret
+        eval_block(scope.clone(), &self.content)
     }
 }
 
@@ -47,7 +50,7 @@ impl UserFn {
 pub enum Function {
     Builtin(BuiltinFn),
     User(Rc<UserFn>),
-    Fn(Rc<dyn Fn(&mut dyn ExactSizeIterator<Item = Value>) -> Value>),
+    Fn(Rc<dyn Fn(&mut dyn ExactSizeIterator<Item = Result<Value>>) -> Result<Value>>),
 }
 
 impl std::fmt::Debug for Function {
@@ -61,7 +64,7 @@ impl std::fmt::Debug for Function {
 }
 
 impl Function {
-    pub fn call(&self, mut params: impl ExactSizeIterator<Item = Value>) -> Value {
+    pub fn call(&self, mut params: impl ExactSizeIterator<Item = Result<Value>>) -> Result<Value> {
         match self {
             Function::Builtin(builtin_fn) => builtin_fn.call(params),
             Function::User(user_fn) => user_fn.call(params),
@@ -79,18 +82,16 @@ pub enum Value {
     Fn(Function),
     Macro(BuiltinMacro),
     Io(Rc<Io>),
-    Error,
     Nil,
 }
 
 fn main() {
     let code = include_str!("./code.lisp?");
-    let ast = parse(code);
 
-    let result = dbg!(eval_program(&ast));
+    let result = dbg!(parse(code).and_then(|ast| eval_program(&ast)));
 
-    if let Value::Io(io) = result {
-        dbg!(io.execute());
+    if let Ok(Value::Io(io)) = result {
+        dbg!(io.execute()).ok();
     }
 }
 
@@ -115,16 +116,16 @@ pub enum Scope {
 }
 
 impl Scope {
-    fn resolve(&self, name: &str) -> &Value {
-        match self {
-            Scope::Empty => builtins::resolve(name),
+    fn resolve(&self, name: &str) -> Result<&Value> {
+        Ok(match self {
+            Scope::Empty => builtins::resolve(name)?,
             Scope::Value {
                 name: this_name,
                 value,
                 ..
             } if *this_name == name => value,
-            Scope::Value { parent, .. } => parent.resolve(name),
-        }
+            Scope::Value { parent, .. } => parent.resolve(name)?,
+        })
     }
 
     fn with(self: Rc<Self>, name: &'static str, value: Value) -> Rc<Scope> {
@@ -136,46 +137,42 @@ impl Scope {
     }
 }
 
-fn eval_program(content: &Value) -> Value {
+fn eval_program(content: &Value) -> Result<Value> {
     let root_scope = Rc::new(Scope::Empty);
 
     eval(&root_scope, content)
 }
 
-fn eval(scope: &Rc<Scope>, input: &Value) -> Value {
+fn eval(scope: &Rc<Scope>, input: &Value) -> Result<Value> {
     match input {
-        v @ (Value::Number(_) | Value::String(_)) => v.clone(),
+        v @ (Value::Number(_) | Value::String(_)) => Ok(v.clone()),
         Value::List(values) => {
             if let [callable, ..] = values.as_slice() {
-                let callable = eval(scope, callable);
+                let callable = eval(scope, callable)?;
                 call(scope, &callable, &values[1..])
             } else {
-                Value::Error
+                Err(BadProgram)
             }
         }
-        Value::Symbol(name) => scope.resolve(name).clone(),
-        _ => Value::Error,
+        Value::Symbol(name) => scope.resolve(name).map(Clone::clone),
+        _ => Err(BadProgram),
     }
 }
 
-fn eval_block(mut scope: Rc<Scope>, content: &[Value]) -> Value {
+fn eval_block(mut scope: Rc<Scope>, content: &[Value]) -> Result<Value> {
     let Some((last, statements)) = content.split_last() else {
-        return Value::Error;
+        return Err(BadProgram);
     };
 
     for statement in statements {
         if let &Value::List(ref list) = statement
             && let [Value::Symbol("let"), Value::Symbol(name), expr] = list.as_slice()
         {
-            let value = eval(&scope, expr);
-
-            if let Value::Error = value {
-                return Value::Error;
-            }
+            let value = eval(&scope, expr)?;
 
             scope = scope.with(name, value);
         } else {
-            return Value::Error;
+            return Err(BadProgram);
         }
     }
 
@@ -183,8 +180,8 @@ fn eval_block(mut scope: Rc<Scope>, content: &[Value]) -> Value {
 }
 
 // A purely syntactic transformation would also work here. But what is this? LISP?
-fn eval_do_block(scope: &Rc<Scope>, content: &[Value]) -> Option<Rc<Io>> {
-    let (first, rest) = content.split_first()?;
+fn eval_do_block(scope: &Rc<Scope>, content: &[Value]) -> Result<Rc<Io>> {
+    let (first, rest) = content.split_first().ok_or(BadProgram)?;
 
     match if let Value::List(list) = first {
         Some(list.as_slice())
@@ -193,14 +190,10 @@ fn eval_do_block(scope: &Rc<Scope>, content: &[Value]) -> Option<Rc<Io>> {
     } {
         Some([Value::Symbol("let"), Value::Symbol(name), expr]) => {
             if rest.len() < 1 {
-                return None;
+                return Err(BadProgram);
             }
 
-            let value = eval(scope, expr);
-
-            if let Value::Error = value {
-                return None;
-            }
+            let value = eval(scope, expr)?;
 
             let scope = scope.clone().with(*name, value);
 
@@ -208,13 +201,13 @@ fn eval_do_block(scope: &Rc<Scope>, content: &[Value]) -> Option<Rc<Io>> {
         }
         Some([Value::Symbol("use"), Value::Symbol(name), expr]) => {
             if rest.len() < 1 {
-                return None;
+                return Err(BadProgram);
             }
 
-            let value = eval(scope, expr);
+            let value = eval(scope, expr)?;
 
             let Value::Io(io) = value else {
-                return None;
+                return Err(BadProgram);
             };
 
             io.bind(&Function::Fn(Rc::new({
@@ -229,39 +222,37 @@ fn eval_do_block(scope: &Rc<Scope>, content: &[Value]) -> Option<Rc<Io>> {
                 let rest = rest.to_vec();
                 move |params| {
                     let (Some(value), None) = (params.next(), params.next()) else {
-                        return Value::Error;
+                        return Err(BadProgram);
                     };
 
-                    let scope = scope.clone().with(name, value);
+                    let scope = scope.clone().with(name, value?);
 
-                    let Some(io) = eval_do_block(&scope, &rest) else {
-                        return Value::Error;
-                    };
+                    let io = eval_do_block(&scope, &rest)?;
 
-                    Value::Io(io)
+                    Ok(Value::Io(io))
                 }
             })))
         }
         _ => {
-            let value = eval(scope, first);
+            let value = eval(scope, first)?;
 
             let Value::Io(io) = value else {
-                return None;
+                return Err(BadProgram);
             };
 
             if rest.len() >= 1 {
-                Some(io.then(eval_do_block(scope, rest)?))
+                Ok(io.then(eval_do_block(scope, rest)?))
             } else {
-                Some(io)
+                Ok(io)
             }
         }
     }
 }
 
-fn call(scope: &Rc<Scope>, callable: &Value, params: &[Value]) -> Value {
+fn call(scope: &Rc<Scope>, callable: &Value, params: &[Value]) -> Result<Value> {
     match callable {
         Value::Macro(builtin_macro) => builtin_macro.call(scope, params),
         Value::Fn(function) => function.call(params.iter().map(|param| eval(scope, param))),
-        _ => Value::Error,
+        _ => Err(BadProgram),
     }
 }

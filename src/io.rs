@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::{Function, Value};
+use crate::{BadProgram, Function, Result, Value};
 
 #[derive(Debug)]
 pub enum Io {
@@ -10,17 +10,18 @@ pub enum Io {
 }
 
 impl Io {
-    pub fn execute(&self) -> Value {
+    pub fn execute(&self) -> Result<Value> {
         match self {
             Io::ReadLine(function) => {
                 let mut buf = String::new();
-                if let Err(_) = std::io::stdin().read_line(&mut buf) {
-                    return Value::Error;
-                }
+                std::io::stdin()
+                    .read_line(&mut buf)
+                    .map_err(|_| BadProgram)?;
 
-                let Value::Io(next) = function.call([Value::String(Rc::new(buf))].into_iter())
+                let Value::Io(next) =
+                    function.call([Ok(Value::String(Rc::new(buf)))].into_iter())?
                 else {
-                    return Value::Error;
+                    return Err(BadProgram);
                 };
 
                 next.execute()
@@ -29,34 +30,34 @@ impl Io {
                 println!("{line}");
                 io.execute()
             }
-            Io::Done(value) => value.clone(),
+            Io::Done(value) => Ok(value.clone()),
         }
     }
 
-    pub fn bind(&self, f: &Function) -> Option<Rc<Io>> {
+    pub fn bind(&self, f: &Function) -> Result<Rc<Io>> {
         match self {
-            Io::ReadLine(function) => Some(Rc::new(Io::ReadLine(Function::Fn(Rc::new({
+            Io::ReadLine(function) => Ok(Rc::new(Io::ReadLine(Function::Fn(Rc::new({
                 let f = f.clone();
                 let function = function.clone();
                 move |params| {
                     let (Some(val), None) = (params.next(), params.next()) else {
-                        return Value::Error;
+                        return Err(BadProgram);
                     };
 
-                    let Value::Io(io) = f.call([val].into_iter()) else {
-                        return Value::Error;
+                    let Value::Io(io) = f.call([val].into_iter())? else {
+                        return Err(BadProgram);
                     };
 
-                    io.bind(&function).map(Value::Io).unwrap_or(Value::Error)
+                    io.bind(&function).map(Value::Io)
                 }
             }))))),
-            Io::PrintLine(line, io) => Some(Rc::new(Io::PrintLine(line.clone(), io.bind(f)?))),
+            Io::PrintLine(line, io) => Ok(Rc::new(Io::PrintLine(line.clone(), io.bind(f)?))),
             Io::Done(value) => {
-                let Value::Io(next) = f.call([value.clone()].into_iter()) else {
-                    return None;
+                let Value::Io(next) = f.call([Ok(value.clone())].into_iter())? else {
+                    return Err(BadProgram);
                 };
 
-                Some(next)
+                Ok(next)
             }
         }
     }
@@ -68,14 +69,14 @@ impl Io {
                 let other = other.clone();
                 move |params| {
                     let (Some(val), None) = (params.next(), params.next()) else {
-                        return Value::Error;
+                        return Err(BadProgram);
                     };
 
-                    let Value::Io(io) = f.call([val].into_iter()) else {
-                        return Value::Error;
+                    let Value::Io(io) = f.call([val].into_iter())? else {
+                        return Err(BadProgram);
                     };
 
-                    Value::Io(io.then(other.clone()))
+                    Ok(Value::Io(io.then(other.clone())))
                 }
             })))),
             Io::PrintLine(line, io) => Rc::new(Io::PrintLine(line.clone(), io.then(other))),

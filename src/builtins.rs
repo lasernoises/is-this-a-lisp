@@ -1,9 +1,11 @@
 use std::rc::Rc;
 
-use crate::{Function, Scope, UserFn, Value, eval_block, eval_do_block, io::Io};
+use crate::{
+    BadProgram, Function, Result, Scope, UserFn, Value, eval_block, eval_do_block, io::Io,
+};
 
-pub fn resolve(name: &str) -> &'static Value {
-    match name {
+pub fn resolve(name: &str) -> Result<&'static Value> {
+    Ok(match name {
         "+" => &Value::Fn(Function::Builtin(BuiltinFn::Add)),
         "-" => &Value::Fn(Function::Builtin(BuiltinFn::Sub)),
         "*" => &Value::Fn(Function::Builtin(BuiltinFn::Mul)),
@@ -19,8 +21,8 @@ pub fn resolve(name: &str) -> &'static Value {
         "block" => &Value::Macro(BuiltinMacro::Block),
         "do" => &Value::Macro(BuiltinMacro::Do),
         "fn" => &Value::Macro(BuiltinMacro::Fn),
-        _ => &Value::Error,
-    }
+        _ => return Err(BadProgram),
+    })
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -46,85 +48,88 @@ pub enum BuiltinMacro {
 }
 
 impl BuiltinFn {
-    pub fn call(self, mut params: impl ExactSizeIterator<Item = Value>) -> Value {
+    pub fn call(self, mut params: impl ExactSizeIterator<Item = Result<Value>>) -> Result<Value> {
         match self {
             BuiltinFn::Add | BuiltinFn::Sub | BuiltinFn::Mul | BuiltinFn::Div => {
                 if params.len() != 2 {
-                    return Value::Error;
+                    return Err(BadProgram);
                 }
 
-                let a = params.next().unwrap();
-                let b = params.next().unwrap();
+                let a = params.next().unwrap()?;
+                let b = params.next().unwrap()?;
 
                 if let (Value::Number(a), Value::Number(b)) = (a, b) {
-                    Value::Number(match self {
+                    Ok(Value::Number(match self {
                         BuiltinFn::Add => a + b,
                         BuiltinFn::Sub => a - b,
                         BuiltinFn::Mul => a * b,
                         BuiltinFn::Div => a / b,
                         _ => unreachable!(),
-                    })
+                    }))
                 } else {
-                    Value::Error
+                    Err(BadProgram)
                 }
             }
             BuiltinFn::Then => {
-                let (Some(Value::Io(a)), Some(Value::Io(b)), None) =
+                let (Some(Ok(Value::Io(a))), Some(Ok(Value::Io(b))), None) =
                     (params.next(), params.next(), params.next())
                 else {
-                    return Value::Error;
+                    return Err(BadProgram);
                 };
 
-                Value::Io(a.then(b))
+                Ok(Value::Io(a.then(b)))
             }
             BuiltinFn::Bind => {
-                let (Some(Value::Io(a)), Some(Value::Fn(b)), None) =
+                let (Some(Ok(Value::Io(a))), Some(Ok(Value::Fn(b))), None) =
                     (params.next(), params.next(), params.next())
                 else {
-                    return Value::Error;
+                    return Err(BadProgram);
                 };
 
-                a.bind(&b).map(Value::Io).unwrap_or(Value::Error)
+                a.bind(&b).map(Value::Io)
             }
             BuiltinFn::Return => {
                 if params.len() != 1 {
-                    return Value::Error;
+                    return Err(BadProgram);
                 }
 
-                Value::Io(Rc::new(Io::Done(params.next().unwrap())))
+                Ok(Value::Io(Rc::new(Io::Done(params.next().unwrap()?))))
             }
             BuiltinFn::ReadLine => {
                 if params.len() != 0 {
-                    return Value::Error;
+                    return Err(BadProgram);
                 }
 
-                Value::Io(Rc::new(Io::ReadLine(Function::Builtin(BuiltinFn::Return))))
+                Ok(Value::Io(Rc::new(Io::ReadLine(Function::Builtin(
+                    BuiltinFn::Return,
+                )))))
             }
             BuiltinFn::PrintLine => {
-                let Some(Value::String(line)) = params.next() else {
-                    return Value::Error;
+                let Some(Ok(Value::String(line))) = params.next() else {
+                    return Err(BadProgram);
                 };
 
-                Value::Io(Rc::new(Io::PrintLine(line, Rc::new(Io::Done(Value::Nil)))))
+                Ok(Value::Io(Rc::new(Io::PrintLine(
+                    line,
+                    Rc::new(Io::Done(Value::Nil)),
+                ))))
             }
         }
     }
 }
 
 impl BuiltinMacro {
-    pub fn call(self, scope: &Rc<Scope>, content: &[Value]) -> Value {
+    pub fn call(self, scope: &Rc<Scope>, content: &[Value]) -> Result<Value> {
         match self {
             BuiltinMacro::Block => eval_block(scope.clone(), content),
-            BuiltinMacro::Do => eval_do_block(scope, content)
-                .map(Value::Io)
-                .unwrap_or(Value::Error),
+            BuiltinMacro::Do => eval_do_block(scope, content).map(Value::Io),
             BuiltinMacro::Fn => {
                 if content.len() < 2 {
-                    return Value::Error;
+                    return Err(BadProgram);
                 }
 
                 let Value::List(ref params) = content[0] else {
-                    return Value::Error;
+                    return Err(BadProgram);
                 };
 
                 for (i, param) in params.iter().enumerate() {
@@ -137,18 +142,18 @@ impl BuiltinMacro {
                                 unreachable!()
                             }
                         }) {
-                            return Value::Error;
+                            return Err(BadProgram);
                         }
                     } else {
-                        return Value::Error;
+                        return Err(BadProgram);
                     }
                 }
 
-                Value::Fn(Function::User(Rc::new(UserFn {
+                Ok(Value::Fn(Function::User(Rc::new(UserFn {
                     scope: scope.clone(),
                     params: params.clone(),
                     content: content[1..].to_vec(),
-                })))
+                }))))
             }
         }
     }

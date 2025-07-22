@@ -1,6 +1,6 @@
 use std::{iter::Peekable, rc::Rc, str::Chars};
 
-use crate::Value;
+use crate::{BadProgram, Result, Value};
 
 #[derive(PartialEq, Debug)]
 enum Token {
@@ -190,9 +190,9 @@ impl<'a> Parser<'a> {
     }
 }
 
-fn parse_node(parser: &mut Parser) -> Value {
-    match parser.peek() {
-        Some(Token::Open) => parse_list(parser),
+fn parse_node(parser: &mut Parser) -> Result<Value> {
+    Ok(match parser.peek() {
+        Some(Token::Open) => parse_list(parser)?,
         Some(&Token::Number(n)) => {
             parser.advance();
             Value::Number(n)
@@ -207,39 +207,32 @@ fn parse_node(parser: &mut Parser) -> Value {
             parser.advance();
             Value::Symbol(s)
         }
-        _ => Value::Error,
-    }
+        _ => return Err(crate::BadProgram),
+    })
 }
 
-fn parse_list(parser: &mut Parser) -> Value {
+fn parse_list(parser: &mut Parser) -> Result<Value> {
     parser.advance();
 
     let mut content = Vec::new();
 
     while parser.peek().is_some_and(|t| t != &Token::Close) {
-        match parse_node(parser) {
-            Value::Error => return Value::Error,
-            v => content.push(v),
-        }
+        content.push(parse_node(parser)?);
     }
 
     if parser.peek().is_some() {
         parser.advance();
-        Value::List(Rc::new(content))
+        Ok(Value::List(Rc::new(content)))
     } else {
-        Value::Error
+        Err(BadProgram)
     }
 }
 
-pub fn parse(buf: &str) -> Value {
+pub fn parse(buf: &str) -> Result<Value> {
     let tokens = tokenize(buf);
 
     let mut parser = Parser::new(&tokens);
-    let node = parse_node(&mut parser);
+    let node = parse_node(&mut parser)?;
 
-    if parser.advance().is_some() {
-        Value::Error
-    } else {
-        node
-    }
+    parser.advance().is_none().then_some(node).ok_or(BadProgram)
 }

@@ -1,12 +1,36 @@
-use std::rc::Rc;
+use std::{path::PathBuf, rc::Rc};
 
 use builtins::{BuiltinFn, BuiltinMacro};
+use clap::Parser;
 use io::Io;
 use parser::parse;
 
 mod builtins;
 mod io;
 mod parser;
+
+#[derive(Parser)]
+struct Cli {
+    path: PathBuf,
+}
+
+fn main() {
+    let cli = Cli::parse();
+
+    let code = match std::fs::read_to_string(cli.path) {
+        Ok(code) => code,
+        Err(e) => {
+            println!("{e}");
+            return;
+        }
+    };
+
+    let result = dbg!(parse(&code).and_then(|ast| eval_program(&ast)));
+
+    if let Ok(Value::Io(io)) = result {
+        dbg!(io.execute()).ok();
+    }
+}
 
 #[derive(Debug)]
 pub struct BadProgram;
@@ -83,16 +107,6 @@ pub enum Value {
     Macro(BuiltinMacro),
     Io(Rc<Io>),
     Nil,
-}
-
-fn main() {
-    let code = include_str!("./code.lisp?");
-
-    let result = dbg!(parse(code).and_then(|ast| eval_program(&ast)));
-
-    if let Ok(Value::Io(io)) = result {
-        dbg!(io.execute()).ok();
-    }
 }
 
 // This used contain a hash-map such that each level could have multiple keys. The advantage of that

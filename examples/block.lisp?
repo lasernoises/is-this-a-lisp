@@ -1,3 +1,5 @@
+#!/usr/bin/env is-this-a-lisp
+
 [block
     [let a 12]
     [let b [+ a 18]]

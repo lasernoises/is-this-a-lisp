@@ -1,3 +1,5 @@
+#!/usr/bin/env is-this-a-lisp
+
 [do
     [print_line "What is your name?"]
     [use name [read_line]]

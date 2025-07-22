@@ -1,0 +1,6 @@
+[do
+    [print_line "What is your name?"]
+    [use name [read_line]]
+    [print_line "Hello,"]
+    [print_line name]
+]

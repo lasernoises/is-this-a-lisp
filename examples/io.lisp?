@@ -1,0 +1,12 @@
+[then
+    [print_line "What is your name?"]
+    [bind
+        [read_line]
+        [fn [name]
+            [then
+                [print_line "Hello,"]
+                [print_line name]
+            ]
+        ]
+    ]
+]

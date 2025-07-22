@@ -1,10 +1,10 @@
 #!/usr/bin/env is-this-a-lisp
 
 [do
-    [print_line "What is your name?"]
+    # use is like let, but it internally uses bind to get the value the I/O evaluates to
     [use name [read_line]]
 
-    # You can also use let in these:
+    # you can also use let in these, just like in blocks
     [let message "Hello,"]
 
     [print_line message]

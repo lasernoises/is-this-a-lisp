@@ -1,6 +1,10 @@
 [do
     [print_line "What is your name?"]
     [use name [read_line]]
-    [print_line "Hello,"]
+
+    # You can also use let in these:
+    [let message "Hello,"]
+
+    [print_line message]
     [print_line name]
 ]

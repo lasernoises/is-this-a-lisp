@@ -61,13 +61,10 @@ impl<'a> Scanner<'a> {
         }
     }
 
-    fn consume_while<F>(&mut self, x: F) -> Vec<char>
-    where
-        F: Fn(char) -> bool,
-    {
+    fn consume_while(&mut self, f: impl Fn(char) -> bool) -> Vec<char> {
         let mut chars: Vec<char> = Vec::new();
         while let Some(&ch) = self.peek() {
-            if x(ch) {
+            if f(ch) {
                 self.next().unwrap();
                 chars.push(ch);
             } else {
@@ -75,6 +72,16 @@ impl<'a> Scanner<'a> {
             }
         }
         chars
+    }
+
+    fn skip_while(&mut self, f: impl Fn(char) -> bool) {
+        while let Some(&ch) = self.peek() {
+            if f(ch) {
+                self.next().unwrap();
+            } else {
+                break;
+            }
+        }
     }
 }
 
@@ -115,6 +122,10 @@ impl<'a> Lexer<'a> {
                 } else {
                     Some(Token::UnterminatedString)
                 }
+            }
+            '#' => {
+                self.scanner.skip_while(|c| c != '\n');
+                return None;
             }
             c => Some(Token::Unknown(c)),
         }

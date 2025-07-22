@@ -99,5 +99,5 @@ not they can change it to `.not-lisp`.
 
 ## Error Handling
 
-This lanugage features inscrutable error handling. Would you like scrutable error handling? I don't
+This language features inscrutable error handling. Would you like scrutable error handling? I don't
 think scrutable is even a word. You just made that up. So what do you even want from me?

@@ -85,6 +85,12 @@ There is a `do` notation to make this actually usable:
 cargo install --git https://github.com/lasernoises/is-this-a-lisp.git
 ```
 
+After you've installed it you can simply pass the path to your program to the executable:
+
+```sh
+is-this-a-lisp examples/hello_world.lisp?
+```
+
 ## File Extension
 
 Since we're not sure whether this is a LISP you should use `.lisp?` as a file extension. That way if

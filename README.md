@@ -11,8 +11,8 @@
 ]
 ```
 
-I wanted to make a LISP. But I don't know what a LISP is. So I decided to make one. But now I don't
-know whether what I've made is a LISP.
+I don't know what a LISP is. So I decided to make one. But now I don't know whether what I've made
+is a LISP.
 
 #### File Extension
 

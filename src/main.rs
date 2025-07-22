@@ -37,6 +37,45 @@ pub struct BadProgram;
 
 pub type Result<T> = std::result::Result<T, BadProgram>;
 
+#[derive(Clone, Debug)]
+pub enum Value {
+    Number(f64),
+    String(Rc<String>),
+    Symbol(&'static str), // TODO: interning
+    List(Rc<Vec<Value>>),
+    Fn(Function),
+    Macro(BuiltinMacro),
+    Io(Rc<Io>),
+    Nil,
+}
+
+#[derive(Clone)]
+pub enum Function {
+    Builtin(BuiltinFn),
+    User(Rc<UserFn>),
+    Fn(Rc<dyn Fn(&mut dyn ExactSizeIterator<Item = Result<Value>>) -> Result<Value>>),
+}
+
+impl std::fmt::Debug for Function {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Builtin(arg0) => f.debug_tuple("Builtin").field(arg0).finish(),
+            Self::User(arg0) => f.debug_tuple("User").field(arg0).finish(),
+            Self::Fn(_) => f.debug_tuple("Fn").finish(),
+        }
+    }
+}
+
+impl Function {
+    pub fn call(&self, mut params: impl ExactSizeIterator<Item = Result<Value>>) -> Result<Value> {
+        match self {
+            Function::Builtin(builtin_fn) => builtin_fn.call(params),
+            Function::User(user_fn) => user_fn.call(params),
+            Function::Fn(f) => f(&mut params),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct UserFn {
     scope: Rc<Scope>,
@@ -68,45 +107,6 @@ impl UserFn {
 
         eval_block(scope.clone(), &self.content)
     }
-}
-
-#[derive(Clone)]
-pub enum Function {
-    Builtin(BuiltinFn),
-    User(Rc<UserFn>),
-    Fn(Rc<dyn Fn(&mut dyn ExactSizeIterator<Item = Result<Value>>) -> Result<Value>>),
-}
-
-impl std::fmt::Debug for Function {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Builtin(arg0) => f.debug_tuple("Builtin").field(arg0).finish(),
-            Self::User(arg0) => f.debug_tuple("User").field(arg0).finish(),
-            Self::Fn(_) => f.debug_tuple("Fn").finish(),
-        }
-    }
-}
-
-impl Function {
-    pub fn call(&self, mut params: impl ExactSizeIterator<Item = Result<Value>>) -> Result<Value> {
-        match self {
-            Function::Builtin(builtin_fn) => builtin_fn.call(params),
-            Function::User(user_fn) => user_fn.call(params),
-            Function::Fn(f) => f(&mut params),
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub enum Value {
-    Number(f64),
-    String(Rc<String>),
-    Symbol(&'static str), // TODO: interning
-    List(Rc<Vec<Value>>),
-    Fn(Function),
-    Macro(BuiltinMacro),
-    Io(Rc<Io>),
-    Nil,
 }
 
 // This used contain a hash-map such that each level could have multiple keys. The advantage of that

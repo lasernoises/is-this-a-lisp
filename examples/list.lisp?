@@ -1,0 +1,5 @@
+[block
+    [let my_list [list 1 2 3]]
+
+    [map my_list [fn [x] [+ x 1]]]
+]

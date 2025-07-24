@@ -11,6 +11,9 @@ pub fn resolve(name: &str) -> Result<&'static Value> {
         "*" => &Value::Fn(Function::Builtin(BuiltinFn::Mul)),
         "/" => &Value::Fn(Function::Builtin(BuiltinFn::Div)),
 
+        "list" => &Value::Fn(Function::Builtin(BuiltinFn::List)),
+        "map" => &Value::Fn(Function::Builtin(BuiltinFn::Map)),
+
         "then" => &Value::Fn(Function::Builtin(BuiltinFn::Then)),
         "bind" => &Value::Fn(Function::Builtin(BuiltinFn::Bind)),
         "return" => &Value::Fn(Function::Builtin(BuiltinFn::Return)),
@@ -31,6 +34,9 @@ pub enum BuiltinFn {
     Sub,
     Mul,
     Div,
+
+    List,
+    Map,
 
     Then,
     Bind,
@@ -69,6 +75,31 @@ impl BuiltinFn {
                 } else {
                     Err(BadProgram)
                 }
+            }
+            BuiltinFn::List => {
+                let mut list = Vec::with_capacity(params.len());
+
+                for param in params {
+                    let param = param?;
+
+                    list.push(param);
+                }
+
+                Ok(Value::List(Rc::new(list)))
+            }
+            BuiltinFn::Map => {
+                let (Some(Ok(Value::List(list))), Some(Ok(Value::Fn(f))), None) =
+                    (params.next(), params.next(), params.next())
+                else {
+                    return Err(BadProgram);
+                };
+
+                let output = list
+                    .iter()
+                    .map(|v| f.call([Ok(v.clone())].into_iter()))
+                    .collect::<Result<_>>()?;
+
+                Ok(Value::List(Rc::new(output)))
             }
             BuiltinFn::Then => {
                 let (Some(Ok(Value::Io(a))), Some(Ok(Value::Io(b))), None) =
